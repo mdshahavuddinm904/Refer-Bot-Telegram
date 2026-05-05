@@ -4,210 +4,138 @@ const config = require("./config");
 
 const bot = new Telegraf(config.BOT_TOKEN);
 
-// ===== DB =====
+const DB_FILE = "./db.json";
+
+// ================= DB =================
 function loadDB() {
-  return JSON.parse(fs.readFileSync("db.json"));
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }, null, 2));
+  }
+  return JSON.parse(fs.readFileSync(DB_FILE));
 }
 
 function saveDB(data) {
-  fs.writeFileSync("db.json", JSON.stringify(data, null, 2));
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
-// ===== MEMORY =====
-const withdrawStep = new Map();
-
-// ===== CHECK JOIN =====
-async function isJoined(ctx) {
-  const userId = ctx.from.id;
-
-  for (let ch of config.CHANNELS) {
-    try {
-      const res = await ctx.telegram.getChatMember(ch, userId);
-      const status = res.status;
-
-      if (status === "left" || status === "kicked") {
-        return false;
-      }
-    } catch {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-// ===== FORCE JOIN MIDDLEWARE =====
-bot.use(async (ctx, next) => {
-  if (!ctx.from) return next();
-
-  const ok = await isJoined(ctx);
-
-  if (!ok) {
-    return ctx.reply(
-      "🚨 Please join channels first!",
-      Markup.inlineKeyboard([
-        [Markup.button.url("🌍 Global Channel", "https://t.me/Global_Method_Channel")],
-        [Markup.button.url("🔒 Main Channel", "https://t.me/+75BQ2Qw9UZI4OTM1")],
-        [Markup.button.callback("✅ Joined", "check_join")]
-      ])
+// ================= CHECK JOIN =================
+async function checkJoin(ctx) {
+  try {
+    const res = await bot.telegram.getChatMember(
+      config.CHANNEL,
+      ctx.from.id
     );
+    return ["creator", "administrator", "member"].includes(res.status);
+  } catch {
+    return false;
   }
+}
 
-  return next();
-});
-
-// ===== START (REFERRAL) =====
+// ================= START =================
 bot.start(async (ctx) => {
   const db = loadDB();
-  const id = String(ctx.from.id);
+  const id = ctx.from.id;
   const ref = ctx.startPayload;
 
-  if (!db[id]) {
-    db[id] = { balance: 0, ref: 0 };
+  if (!db.users[id]) {
+    db.users[id] = {
+      balance: 0,
+      referrals: 0,
+      joined: false,
+      referredBy: ref || null
+    };
+  }
 
-    if (ref && ref !== id && db[ref]) {
-      db[ref].balance += 5;
-      db[ref].ref += 1;
-    }
+  saveDB(db);
 
-    saveDB(db);
+  const joined = await checkJoin(ctx);
+
+  if (!joined) {
+    return ctx.reply(
+      "👋 Welcome!\n\nPlease join channel:",
+      Markup.inlineKeyboard([
+        [Markup.button.url("🌍 Join Channel", `https://t.me/${config.CHANNEL.replace("@","")}`)],
+        [Markup.button.callback("✅ I Joined", "check_join")]
+      ])
+    );
   }
 
   return ctx.reply(
 `✅ Welcome!
 
-🇧🇩 বাংলায়:
-আপনি এখন বট ব্যবহার করতে পারবেন।
-TikTok ভিডিও ডাউনলোড করতে ভিডিও লিংক পাঠান 📥
-
-🇬🇧 English:
-You can now use the bot. Send a TikTok link to download video 📥`
+💰 Earn system active
+Invite friends & earn bonus`
   );
 });
 
-// ===== JOIN BUTTON =====
+// ================= JOIN CHECK =================
 bot.action("check_join", async (ctx) => {
-  const ok = await isJoined(ctx);
+  const db = loadDB();
+  const id = ctx.from.id;
 
-  if (!ok) {
-    return ctx.answerCbQuery("❌ Join first!", { show_alert: true });
+  const joined = await checkJoin(ctx);
+
+  if (!joined) {
+    return ctx.reply("❌ Please join channel first!");
   }
 
-  return ctx.reply("✅ Joined successfully! এখন ব্যবহার করতে পারো 🎉");
+  db.users[id].joined = true;
+
+  // referral bonus system
+  const ref = db.users[id].referredBy;
+
+  if (ref && db.users[ref]) {
+    db.users[ref].balance += 5;
+    db.users[ref].referrals += 1;
+  }
+
+  saveDB(db);
+
+  return ctx.reply("✅ Joined Successfully!");
 });
 
-// ===== REFER =====
+// ================= REF LINK =================
 bot.command("refer", (ctx) => {
-  const id = ctx.from.id;
-  const link = `https://t.me/MegaUtilityBot?start=${id}`;
+  const link = `https://t.me/${ctx.botInfo.username}?start=${ctx.from.id}`;
 
-  ctx.reply(`👥 Your Referral Link:\n${link}\n\n💰 Earn 5৳ per user`);
+  ctx.reply(`🔗 Your Referral Link:\n${link}\n\n💰 Earn 5 coins per referral`);
 });
 
-// ===== BALANCE =====
+// ================= BALANCE =================
 bot.command("balance", (ctx) => {
   const db = loadDB();
-  const id = String(ctx.from.id);
+  const user = db.users[ctx.from.id];
 
-  const bal = db[id]?.balance || 0;
-  const ref = db[id]?.ref || 0;
-
-  ctx.reply(`💰 Balance: ${bal}৳\n👥 Referrals: ${ref}`);
+  ctx.reply(`💰 Your Balance: ${user?.balance || 0}`);
 });
 
-// ===== WITHDRAW START =====
+// ================= WITHDRAW =================
 bot.command("withdraw", (ctx) => {
-  const id = String(ctx.from.id);
-
-  withdrawStep.set(id, "amount");
-
-  ctx.reply("💸 Enter withdraw amount (minimum 50৳):");
-});
-
-// ===== TEXT HANDLER =====
-bot.on("text", async (ctx) => {
-  const id = String(ctx.from.id);
-  const text = ctx.message.text;
   const db = loadDB();
+  const user = db.users[ctx.from.id];
 
-  // ignore commands
-  if (text.startsWith("/")) return;
-
-  // ===== STEP 1: AMOUNT =====
-  if (withdrawStep.get(id) === "amount") {
-    const amount = parseInt(text);
-
-    if (isNaN(amount)) {
-      return ctx.reply("❌ Enter valid number!");
-    }
-
-    if (amount < 50) {
-      return ctx.reply("❌ Minimum withdraw is 50৳");
-    }
-
-    if (!db[id] || db[id].balance < amount) {
-      return ctx.reply("❌ Not enough balance!");
-    }
-
-    withdrawStep.set(id, { step: "method", amount });
-
-    return ctx.reply(
-      "💳 Select payment method:",
-      Markup.inlineKeyboard([
-        [Markup.button.callback("📱 Bkash", "bkash")],
-        [Markup.button.callback("📱 Nagad", "nagad")]
-      ])
-    );
+  if (!user || user.balance < 10) {
+    return ctx.reply("❌ Minimum withdraw is 10 coins");
   }
 
-  // ===== STEP 2: NUMBER =====
-  if (withdrawStep.get(id)?.step === "number") {
-    const info = withdrawStep.get(id);
-    const number = text;
+  const msg = `
+💸 Withdraw Request
 
-    db[id].balance -= info.amount;
-    saveDB(db);
+User: ${ctx.from.id}
+Balance: ${user.balance}
+`;
 
-    withdrawStep.delete(id);
+  bot.telegram.sendMessage(config.ADMIN_ID, msg);
 
-    ctx.telegram.sendMessage(
-      config.ADMIN_ID,
-`💸 New Withdraw Request
+  user.balance = 0;
+  saveDB(db);
 
-👤 User: ${id}
-💰 Amount: ${info.amount}৳
-💳 Method: ${info.method}
-📲 Number: ${number}`
-    );
-
-    return ctx.reply("✅ Withdraw request sent!");
-  }
-
-  ctx.reply("📩 Send TikTok link or use commands");
+  ctx.reply("✅ Withdraw request sent!");
 });
 
-// ===== PAYMENT METHOD =====
-bot.action(["bkash", "nagad"], (ctx) => {
-  const id = String(ctx.from.id);
-  const data = withdrawStep.get(id);
-
-  if (!data || data.step !== "method") {
-    return ctx.reply("❌ Start withdraw again");
-  }
-
-  const method = ctx.match[0];
-
-  withdrawStep.set(id, {
-    step: "number",
-    amount: data.amount,
-    method
-  });
-
-  ctx.reply("📲 Enter your number:");
-});
-
-// ===== ERROR =====
-bot.catch((err) => console.log(err));
+// ================= ERROR =================
+bot.catch(console.log);
 
 bot.launch();
-console.log("🚀 Bot running...");
+
+console.log("🚀 Referral Bot Running...");
