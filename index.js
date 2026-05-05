@@ -29,7 +29,6 @@ async function checkJoin(ctx) {
 
 /* ================= STATES ================= */
 const withdrawState = {};
-const replyState = {};
 
 /* ================= START ================= */
 bot.start(async (ctx) => {
@@ -182,8 +181,11 @@ bot.on("text", async (ctx) => {
         return ctx.reply("❌ Invalid amount");
       }
 
+      const requestId = Date.now(); // unique id
+
       const msg = `💸 Withdraw Request
 
+ID: ${requestId}
 User: ${id}
 Username: @${ctx.from.username || "NoUsername"}
 Amount: $${amount}
@@ -195,8 +197,8 @@ Number: ${state.number}`;
         msg,
         Markup.inlineKeyboard([
           [
-            Markup.button.callback(`✅ Approve`, `approve_${id}_${amount}`),
-            Markup.button.callback(`❌ Reject`, `reject_${id}_${amount}`)
+            Markup.button.callback("✅ Approve", `approve_${requestId}_${id}_${amount}`),
+            Markup.button.callback("❌ Reject", `reject_${requestId}_${id}_${amount}`)
           ]
         ])
       );
@@ -208,18 +210,31 @@ Number: ${state.number}`;
 });
 
 /* ================= APPROVE ================= */
-bot.action(/approve_(.+)_(.+)/, async (ctx) => {
+bot.action(/approve_(.+)_(.+)_(.+)/, async (ctx) => {
   if (ctx.from.id !== config.ADMIN_ID) return;
 
-  const userId = ctx.match[1];
-  const amount = Number(ctx.match[2]);
+  const requestId = ctx.match[1];
+  const userId = ctx.match[2];
+  const amount = Number(ctx.match[3]);
 
   const db = loadDB();
+  const user = db.users[userId];
 
-  if (!db.users[userId]) return;
+  if (!user) return;
 
-  db.users[userId].balance -= amount;
+  if (user.lastRequest === requestId) {
+    return ctx.answerCbQuery("Already processed!");
+  }
+
+  user.balance -= amount;
+  user.lastRequest = requestId;
+
   saveDB(db);
+
+  await ctx.editMessageText(`✅ Approved & Paid
+
+User: ${userId}
+Amount: $${amount}`);
 
   await bot.telegram.sendMessage(
     userId,
@@ -232,23 +247,34 @@ bot.action(/approve_(.+)_(.+)/, async (ctx) => {
       }
     }
   );
-
-  ctx.reply("✅ Approved!");
 });
 
 /* ================= REJECT ================= */
-bot.action(/reject_(.+)_(.+)/, async (ctx) => {
+bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
   if (ctx.from.id !== config.ADMIN_ID) return;
 
-  const userId = ctx.match[1];
-  const amount = Number(ctx.match[2]);
+  const requestId = ctx.match[1];
+  const userId = ctx.match[2];
+  const amount = Number(ctx.match[3]);
 
   const db = loadDB();
+  const user = db.users[userId];
 
-  if (!db.users[userId]) return;
+  if (!user) return;
 
-  db.users[userId].balance += amount;
+  if (user.lastRequest === requestId) {
+    return ctx.answerCbQuery("Already processed!");
+  }
+
+  user.balance += amount;
+  user.lastRequest = requestId;
+
   saveDB(db);
+
+  await ctx.editMessageText(`❌ Withdraw Rejected
+
+User: ${userId}
+Amount Returned: $${amount}`);
 
   await bot.telegram.sendMessage(
     userId,
@@ -261,54 +287,6 @@ bot.action(/reject_(.+)_(.+)/, async (ctx) => {
       }
     }
   );
-
-  ctx.reply("❌ Rejected!");
-});
-
-/* ================= DELETE ================= */
-bot.command("delete", (ctx) => {
-  if (ctx.from.id !== config.ADMIN_ID) return;
-
-  ctx.reply(
-    "⚠️ Reset all users?",
-    Markup.inlineKeyboard([
-      [Markup.button.callback("✅ Confirm", "reset_yes")],
-      [Markup.button.callback("❌ Cancel", "reset_no")]
-    ])
-  );
-});
-
-bot.action("reset_no", (ctx) => ctx.reply("❌ Cancelled"));
-
-bot.action("reset_yes", async (ctx) => {
-  const db = loadDB();
-  const users = Object.keys(db.users);
-
-  users.forEach((u) => {
-    db.users[u].balance = 0;
-    db.users[u].referrals = 0;
-    db.users[u].rewarded = false;
-  });
-
-  saveDB(db);
-
-  ctx.reply("✅ All users reset");
-
-  for (let u of users) {
-    try {
-      await bot.telegram.sendMessage(
-        u,
-        "⚠️ Due to server issue, all balances are reset.\nPlease continue using bot 🙏",
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🟢 Support ID", url: "https://t.me/Smart_Method_Owner" }]
-            ]
-          }
-        }
-      );
-    } catch {}
-  }
 });
 
 /* ================= ERROR ================= */
