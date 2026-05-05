@@ -29,7 +29,6 @@ async function checkJoin(ctx) {
 
 /* ================= STATES ================= */
 const withdrawState = {};
-const supportState = {};
 const replyState = {};
 
 /* ================= START ================= */
@@ -71,8 +70,7 @@ bot.start(async (ctx) => {
 🔗 /refer
 💰 /balance
 💸 /withdraw
-🎁 /bonus
-📩 /support`);
+🎁 /bonus`);
 });
 
 /* ================= JOIN ================= */
@@ -166,7 +164,6 @@ bot.on("text", async (ctx) => {
   const db = loadDB();
   const id = ctx.from.id;
 
-  // withdraw flow
   if (withdrawState[id]) {
     const state = withdrawState[id];
     const user = db.users[id];
@@ -197,7 +194,10 @@ Number: ${state.number}`;
         config.ADMIN_ID,
         msg,
         Markup.inlineKeyboard([
-          [Markup.button.callback(`✅ Approve ${id}`, `approve_${id}_${amount}`)]
+          [
+            Markup.button.callback("✅ Approve", `approve_${id}_${amount}`),
+            Markup.button.callback("❌ Reject", `reject_${id}_${amount}`)
+          ]
         ])
       );
 
@@ -216,63 +216,50 @@ bot.action(/approve_(.+)_(.+)/, async (ctx) => {
 
   const db = loadDB();
 
-  if (!db.users[userId]) return;
+  if (!db.users[userId]) return ctx.reply("User not found");
+
+  if (db.users[userId].balance < amount) {
+    return ctx.reply("❌ Already processed");
+  }
 
   db.users[userId].balance -= amount;
   saveDB(db);
 
   await bot.telegram.sendMessage(
     userId,
-    "✅ Your payment has been sent!\nPlease check your wallet."
+    "✅ Your payment has been sent!\nPlease check your wallet.",
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🟢 Support", url: "https://t.me/Smart_Method_Owner" }]
+        ]
+      }
+    }
   );
 
-  ctx.reply("✅ Approved!");
+  ctx.editMessageText("✅ Approved & Paid");
 });
 
-/* ================= DELETE ================= */
-bot.command("delete", (ctx) => {
+/* ================= REJECT ================= */
+bot.action(/reject_(.+)_(.+)/, async (ctx) => {
   if (ctx.from.id !== config.ADMIN_ID) return;
 
-  ctx.reply(
-    "⚠️ Reset all users?",
-    Markup.inlineKeyboard([
-      [Markup.button.callback("✅ Confirm", "reset_yes")],
-      [Markup.button.callback("❌ Cancel", "reset_no")]
-    ])
-  );
-});
+  const userId = ctx.match[1];
+  const amount = Number(ctx.match[2]);
 
-bot.action("reset_no", (ctx) => ctx.reply("❌ Cancelled"));
-
-bot.action("reset_yes", async (ctx) => {
   const db = loadDB();
-  const users = Object.keys(db.users);
 
-  users.forEach((u) => {
-    db.users[u].balance = 0;
-    db.users[u].referrals = 0;
-    db.users[u].rewarded = false;
-  });
+  if (!db.users[userId]) return ctx.reply("User not found");
 
+  db.users[userId].balance += amount;
   saveDB(db);
 
-  ctx.reply("✅ All users reset");
+  await bot.telegram.sendMessage(
+    userId,
+    "❌ Your withdraw request has been cancelled.\n💰 Amount returned to your balance."
+  );
 
-  for (let u of users) {
-    try {
-      await bot.telegram.sendMessage(
-        u,
-        "⚠️ Due to server issue, all balances are reset.\nPlease continue using bot 🙏",
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🟢 Support ID", url: "https://t.me/Smart_Method_Owner" }]
-            ]
-          }
-        }
-      );
-    } catch {}
-  }
+  ctx.editMessageText("❌ Withdraw Rejected");
 });
 
 /* ================= ERROR ================= */
