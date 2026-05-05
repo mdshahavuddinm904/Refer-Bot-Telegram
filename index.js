@@ -27,8 +27,8 @@ async function checkJoin(ctx) {
   }
 }
 
-/* ================= FORCE JOIN ================= */
-async function joinMsg(ctx) {
+/* ================= JOIN MSG ================= */
+function joinMsg(ctx) {
   return ctx.reply(
     "❌ You must join channel first!",
     Markup.inlineKeyboard([
@@ -38,7 +38,7 @@ async function joinMsg(ctx) {
   );
 }
 
-/* ================= STATES ================= */
+/* ================= STATE ================= */
 const withdrawState = {};
 
 /* ================= START ================= */
@@ -54,7 +54,8 @@ bot.start(async (ctx) => {
       joined: false,
       referredBy: ref || null,
       rewarded: false,
-      lastBonus: 0
+      lastBonus: 0,
+      lastRequest: null
     };
   }
 
@@ -85,7 +86,7 @@ function getWelcome() {
 🚀 Invite friends & earn money easily!`;
 }
 
-/* ================= JOIN ================= */
+/* ================= JOIN BUTTON ================= */
 bot.action("check_join", async (ctx) => {
   const db = loadDB();
   const id = ctx.from.id;
@@ -111,7 +112,7 @@ bot.action("check_join", async (ctx) => {
   return ctx.reply(getWelcome());
 });
 
-/* ================= CHECK JOIN MIDDLEWARE ================= */
+/* ================= MIDDLEWARE ================= */
 async function mustJoin(ctx, next) {
   const joined = await checkJoin(ctx);
   if (!joined) return joinMsg(ctx);
@@ -188,7 +189,6 @@ bot.on("text", async (ctx) => {
     const state = withdrawState[id];
     const user = db.users[id];
 
-    // number step
     if (state.step === "number") {
       if (ctx.message.text.length < 5) {
         return ctx.reply("❌ Invalid number!");
@@ -199,12 +199,11 @@ bot.on("text", async (ctx) => {
       return ctx.reply("💰 Enter withdraw amount:");
     }
 
-    // amount step
     if (state.step === "amount") {
       const amount = Number(ctx.message.text);
 
       if (isNaN(amount)) {
-        return ctx.reply("❌ Please enter valid number amount!");
+        return ctx.reply("❌ Enter valid amount!");
       }
 
       if (!user || user.balance < amount || amount < 5) {
@@ -213,6 +212,10 @@ bot.on("text", async (ctx) => {
       }
 
       const requestId = Date.now();
+
+      // 🔥 deduct here
+      user.balance -= amount;
+      saveDB(db);
 
       await bot.telegram.sendMessage(
         config.ADMIN_ID,
@@ -253,7 +256,6 @@ bot.action(/approve_(.+)_(.+)_(.+)/, async (ctx) => {
     return ctx.answerCbQuery("Already processed!");
   }
 
-  user.balance -= amount;
   user.lastRequest = requestId;
   saveDB(db);
 
@@ -262,7 +264,8 @@ bot.action(/approve_(.+)_(.+)_(.+)/, async (ctx) => {
 User: ${userId}
 Amount: $${amount}`);
 
-  await bot.telegram.sendMessage(userId,
+  await bot.telegram.sendMessage(
+    userId,
     "✅ Your payment has been sent!\nPlease check your wallet.",
     {
       reply_markup: {
@@ -289,6 +292,7 @@ bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
     return ctx.answerCbQuery("Already processed!");
   }
 
+  // return balance
   user.balance += amount;
   user.lastRequest = requestId;
   saveDB(db);
@@ -298,7 +302,8 @@ bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
 User: ${userId}
 Amount Returned: $${amount}`);
 
-  await bot.telegram.sendMessage(userId,
+  await bot.telegram.sendMessage(
+    userId,
     "❌ Your withdraw request has been cancelled.\n💰 Amount returned to your balance.",
     {
       reply_markup: {
