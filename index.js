@@ -102,7 +102,7 @@ bot.action("check_join", async (ctx) => {
     db.users[ref].balance += 20;
     db.users[ref].referrals += 1;
 
-    bot.telegram.sendMessage(ref, "🎉 You earned $20 from referral!");
+    bot.telegram.sendMessage(ref, "🎉 You earned $0.30 from referral!");
 
     db.users[id].rewarded = true;
   }
@@ -122,7 +122,7 @@ async function mustJoin(ctx, next) {
 /* ================= REFER ================= */
 bot.command("refer", mustJoin, (ctx) => {
   const link = `https://t.me/${ctx.botInfo.username}?start=${ctx.from.id}`;
-  ctx.reply(`🔗 Your Link:\n${link}\n\n💰 Earn $20 per referral`);
+  ctx.reply(`🔗 Your Link:\n${link}\n\n💰 Earn $0.30 per referral`);
 });
 
 /* ================= BALANCE ================= */
@@ -151,11 +151,11 @@ bot.command("bonus", mustJoin, (ctx) => {
     return ctx.reply("⏳ Bonus available every 24 hours");
   }
 
-  user.balance += 50;
+  user.balance += 0.30;
   user.lastBonus = now;
 
   saveDB(db);
-  ctx.reply("🎁 You received $50 bonus!");
+  ctx.reply("🎁 You received $0.35 bonus!");
 });
 
 /* ================= WITHDRAW ================= */
