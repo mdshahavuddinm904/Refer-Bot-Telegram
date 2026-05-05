@@ -18,19 +18,6 @@ function saveDB(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= CHECK JOIN =================
-async function checkJoin(ctx) {
-  try {
-    const res = await bot.telegram.getChatMember(
-      config.CHANNEL,
-      ctx.from.id
-    );
-    return ["creator", "administrator", "member"].includes(res.status);
-  } catch {
-    return false;
-  }
-}
-
 // ================= START =================
 bot.start(async (ctx) => {
   const db = loadDB();
@@ -52,19 +39,23 @@ bot.start(async (ctx) => {
 
   if (!joined) {
     return ctx.reply(
-      "👋 Welcome!\n\nPlease join channel:",
+      "👋 Welcome!\n\nJoin required to continue:",
       Markup.inlineKeyboard([
-        [Markup.button.url("🌍 Join Channel", `https://t.me/${config.CHANNEL.replace("@","")}`)],
+        [Markup.button.url("🌍 Join Channel", "https://t.me/Global_Method_Channel")],
         [Markup.button.callback("✅ I Joined", "check_join")]
       ])
     );
   }
 
+  db.users[id].joined = true;
+  saveDB(db);
+
   return ctx.reply(
 `✅ Welcome!
 
-💰 Earn system active
-Invite friends & earn bonus`
+💰 Referral System Active
+🔗 Use /refer to earn coins
+💸 Use /withdraw to cash out`
   );
 });
 
@@ -76,12 +67,12 @@ bot.action("check_join", async (ctx) => {
   const joined = await checkJoin(ctx);
 
   if (!joined) {
-    return ctx.reply("❌ Please join channel first!");
+    return ctx.reply("❌ You must join channel first!");
   }
 
   db.users[id].joined = true;
 
-  // referral bonus system
+  // referral bonus
   const ref = db.users[id].referredBy;
 
   if (ref && db.users[ref]) {
@@ -91,14 +82,37 @@ bot.action("check_join", async (ctx) => {
 
   saveDB(db);
 
-  return ctx.reply("✅ Joined Successfully!");
+  return ctx.reply(
+`✅ Successfully Joined!
+
+💰 Referral system activated
+Use /refer to get your link`
+  );
 });
+
+// ================= CHECK JOIN FUNCTION =================
+async function checkJoin(ctx) {
+  try {
+    const res = await bot.telegram.getChatMember(
+      "@Global_Method_Channel",
+      ctx.from.id
+    );
+    return ["creator", "administrator", "member"].includes(res.status);
+  } catch {
+    return false;
+  }
+}
 
 // ================= REF LINK =================
 bot.command("refer", (ctx) => {
   const link = `https://t.me/${ctx.botInfo.username}?start=${ctx.from.id}`;
 
-  ctx.reply(`🔗 Your Referral Link:\n${link}\n\n💰 Earn 5 coins per referral`);
+  ctx.reply(
+`🔗 Your Referral Link:
+${link}
+
+💰 Earn 5 coins per referral`
+  );
 });
 
 // ================= BALANCE =================
@@ -106,7 +120,7 @@ bot.command("balance", (ctx) => {
   const db = loadDB();
   const user = db.users[ctx.from.id];
 
-  ctx.reply(`💰 Your Balance: ${user?.balance || 0}`);
+  ctx.reply(`💰 Balance: ${user?.balance || 0} coins`);
 });
 
 // ================= WITHDRAW =================
@@ -115,17 +129,13 @@ bot.command("withdraw", (ctx) => {
   const user = db.users[ctx.from.id];
 
   if (!user || user.balance < 10) {
-    return ctx.reply("❌ Minimum withdraw is 10 coins");
+    return ctx.reply("❌ Minimum withdraw 10 coins required");
   }
 
-  const msg = `
-💸 Withdraw Request
-
-User: ${ctx.from.id}
-Balance: ${user.balance}
-`;
-
-  bot.telegram.sendMessage(config.ADMIN_ID, msg);
+  bot.telegram.sendMessage(
+    config.ADMIN_ID,
+    `💸 Withdraw Request\n\nUser: ${ctx.from.id}\nBalance: ${user.balance}`
+  );
 
   user.balance = 0;
   saveDB(db);
@@ -134,7 +144,7 @@ Balance: ${user.balance}
 });
 
 // ================= ERROR =================
-bot.catch(console.log);
+bot.catch((err) => console.log("Error:", err));
 
 bot.launch();
 
