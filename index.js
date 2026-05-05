@@ -110,7 +110,16 @@ bot.command("refer", (ctx) => {
 bot.command("balance", (ctx) => {
   const db = loadDB();
   const user = db.users[ctx.from.id];
-  ctx.reply(`💰 Balance: $${user?.balance || 0}`);
+
+  ctx.reply(
+`📊 Account Information
+
+👤 Username: @${ctx.from.username || "NoUsername"}
+🆔 User ID: ${ctx.from.id}
+
+💰 Balance: $${user?.balance || 0}
+💸 Minimum Withdraw: $5`
+  );
 });
 
 /* ================= BONUS ================= */
@@ -144,7 +153,7 @@ bot.command("withdraw", (ctx) => {
 });
 
 function askNumber(ctx, method) {
-  withdrawState[ctx.from.id] = { method };
+  withdrawState[ctx.from.id] = { step: "number", method };
   ctx.reply(`Enter your ${method} number:`);
 }
 
@@ -152,77 +161,64 @@ bot.action("wd_bkash", (ctx) => askNumber(ctx, "BKash"));
 bot.action("wd_nagad", (ctx) => askNumber(ctx, "Nagad"));
 bot.action("wd_binance", (ctx) => askNumber(ctx, "Binance"));
 
-/* ================= MESSAGE HANDLER ================= */
+/* ================= MESSAGE ================= */
 bot.on("text", async (ctx) => {
   const db = loadDB();
   const id = ctx.from.id;
 
   // withdraw flow
   if (withdrawState[id]) {
+    const state = withdrawState[id];
     const user = db.users[id];
 
-    if (!user || user.balance < 5) {
-      delete withdrawState[id];
-      return ctx.reply("❌ Minimum withdraw is $5");
+    if (state.step === "number") {
+      state.number = ctx.message.text;
+      state.step = "amount";
+      return ctx.reply("💰 Enter withdraw amount:");
     }
 
-    const number = ctx.message.text;
-    const method = withdrawState[id].method;
+    if (state.step === "amount") {
+      const amount = Number(ctx.message.text);
 
-    const msg = `💸 Withdraw Request
+      if (!user || user.balance < amount || amount < 5) {
+        delete withdrawState[id];
+        return ctx.reply("❌ Invalid amount (min $5 or insufficient balance)");
+      }
+
+      const msg = `💸 Withdraw Request
 
 User: ${id}
 Username: @${ctx.from.username || "NoUsername"}
-Amount: $${user.balance}
-Method: ${method}
-Number: ${number}`;
+Amount: $${amount}
+Method: ${state.method}
+Number: ${state.number}`;
 
-    await bot.telegram.sendMessage(
-      config.ADMIN_ID,
-      msg,
-      Markup.inlineKeyboard([
-        [Markup.button.callback(`✅ Approve ${id}`, `approve_${id}`)]
-      ])
-    );
+      await bot.telegram.sendMessage(
+        config.ADMIN_ID,
+        msg,
+        Markup.inlineKeyboard([
+          [Markup.button.callback(`✅ Approve ${id}`, `approve_${id}_${amount}`)]
+        ])
+      );
 
-    delete withdrawState[id];
-    return ctx.reply("✅ Request sent!");
-  }
-
-  // support flow
-  if (supportState[id]) {
-    const msg = ctx.message.text;
-
-    await bot.telegram.sendMessage(
-      config.ADMIN_ID,
-      `📩 Support Message\nUser: ${id}\n\n${msg}`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback("Reply", `reply_${id}`)]
-      ])
-    );
-
-    supportState[id] = false;
-    return ctx.reply("✅ Sent to admin!");
-  }
-
-  // admin reply
-  if (ctx.from.id === config.ADMIN_ID && replyState[id]) {
-    await bot.telegram.sendMessage(replyState[id], `📩 Admin:\n${ctx.message.text}`);
-    replyState[id] = null;
-    return ctx.reply("✅ Reply sent");
+      delete withdrawState[id];
+      return ctx.reply("✅ Request sent!");
+    }
   }
 });
 
 /* ================= APPROVE ================= */
-bot.action(/approve_(.+)/, async (ctx) => {
+bot.action(/approve_(.+)_(.+)/, async (ctx) => {
   if (ctx.from.id !== config.ADMIN_ID) return;
 
   const userId = ctx.match[1];
+  const amount = Number(ctx.match[2]);
+
   const db = loadDB();
 
   if (!db.users[userId]) return;
 
-  db.users[userId].balance = 0;
+  db.users[userId].balance -= amount;
   saveDB(db);
 
   await bot.telegram.sendMessage(
@@ -233,19 +229,7 @@ bot.action(/approve_(.+)/, async (ctx) => {
   ctx.reply("✅ Approved!");
 });
 
-/* ================= SUPPORT ================= */
-bot.command("support", (ctx) => {
-  supportState[ctx.from.id] = true;
-  ctx.reply("✉️ Send your message:");
-});
-
-bot.action(/reply_(.+)/, (ctx) => {
-  if (ctx.from.id !== config.ADMIN_ID) return;
-  replyState[ctx.from.id] = ctx.match[1];
-  ctx.reply("✉️ Send reply:");
-});
-
-/* ================= GLOBAL RESET ================= */
+/* ================= DELETE ================= */
 bot.command("delete", (ctx) => {
   if (ctx.from.id !== config.ADMIN_ID) return;
 
