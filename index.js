@@ -68,7 +68,7 @@ bot.start(async (ctx) => {
 
 💰 Referral System Active
 🔗 /refer
-💰 /balance
+📊 /balance
 💸 /withdraw
 🎁 /bonus`);
 });
@@ -179,7 +179,7 @@ bot.on("text", async (ctx) => {
 
       if (!user || user.balance < amount || amount < 5) {
         delete withdrawState[id];
-        return ctx.reply("❌ Invalid amount (min $5 or insufficient balance)");
+        return ctx.reply("❌ Invalid amount");
       }
 
       const msg = `💸 Withdraw Request
@@ -195,8 +195,8 @@ Number: ${state.number}`;
         msg,
         Markup.inlineKeyboard([
           [
-            Markup.button.callback("✅ Approve", `approve_${id}_${amount}`),
-            Markup.button.callback("❌ Reject", `reject_${id}_${amount}`)
+            Markup.button.callback(`✅ Approve`, `approve_${id}_${amount}`),
+            Markup.button.callback(`❌ Reject`, `reject_${id}_${amount}`)
           ]
         ])
       );
@@ -216,11 +216,7 @@ bot.action(/approve_(.+)_(.+)/, async (ctx) => {
 
   const db = loadDB();
 
-  if (!db.users[userId]) return ctx.reply("User not found");
-
-  if (db.users[userId].balance < amount) {
-    return ctx.reply("❌ Already processed");
-  }
+  if (!db.users[userId]) return;
 
   db.users[userId].balance -= amount;
   saveDB(db);
@@ -231,13 +227,13 @@ bot.action(/approve_(.+)_(.+)/, async (ctx) => {
     {
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🟢 Support", url: "https://t.me/Smart_Method_Owner" }]
+          [{ text: "🟢 Support ID", url: "https://t.me/Smart_Method_Owner" }]
         ]
       }
     }
   );
 
-  ctx.editMessageText("✅ Approved & Paid");
+  ctx.reply("✅ Approved!");
 });
 
 /* ================= REJECT ================= */
@@ -249,17 +245,70 @@ bot.action(/reject_(.+)_(.+)/, async (ctx) => {
 
   const db = loadDB();
 
-  if (!db.users[userId]) return ctx.reply("User not found");
+  if (!db.users[userId]) return;
 
   db.users[userId].balance += amount;
   saveDB(db);
 
   await bot.telegram.sendMessage(
     userId,
-    "❌ Your withdraw request has been cancelled.\n💰 Amount returned to your balance."
+    "❌ Your withdraw request has been cancelled.\n💰 Amount returned to your balance.",
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🟢 Support ID", url: "https://t.me/Smart_Method_Owner" }]
+        ]
+      }
+    }
   );
 
-  ctx.editMessageText("❌ Withdraw Rejected");
+  ctx.reply("❌ Rejected!");
+});
+
+/* ================= DELETE ================= */
+bot.command("delete", (ctx) => {
+  if (ctx.from.id !== config.ADMIN_ID) return;
+
+  ctx.reply(
+    "⚠️ Reset all users?",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("✅ Confirm", "reset_yes")],
+      [Markup.button.callback("❌ Cancel", "reset_no")]
+    ])
+  );
+});
+
+bot.action("reset_no", (ctx) => ctx.reply("❌ Cancelled"));
+
+bot.action("reset_yes", async (ctx) => {
+  const db = loadDB();
+  const users = Object.keys(db.users);
+
+  users.forEach((u) => {
+    db.users[u].balance = 0;
+    db.users[u].referrals = 0;
+    db.users[u].rewarded = false;
+  });
+
+  saveDB(db);
+
+  ctx.reply("✅ All users reset");
+
+  for (let u of users) {
+    try {
+      await bot.telegram.sendMessage(
+        u,
+        "⚠️ Due to server issue, all balances are reset.\nPlease continue using bot 🙏",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🟢 Support ID", url: "https://t.me/Smart_Method_Owner" }]
+            ]
+          }
+        }
+      );
+    } catch {}
+  }
 });
 
 /* ================= ERROR ================= */
