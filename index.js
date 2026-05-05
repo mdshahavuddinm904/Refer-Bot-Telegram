@@ -27,6 +27,22 @@ async function checkJoin(ctx) {
   }
 }
 
+/* ================= FORCE JOIN ================= */
+async function mustJoin(ctx, next) {
+  const joined = await checkJoin(ctx);
+
+  if (!joined) {
+    return ctx.reply(
+      "❌ You must join channel first!",
+      Markup.inlineKeyboard([
+        [Markup.button.url("🌍 Join Channel", "https://t.me/Global_Method_Channel")]
+      ])
+    );
+  }
+
+  return next();
+}
+
 /* ================= STATES ================= */
 const withdrawState = {};
 
@@ -98,13 +114,13 @@ bot.action("check_join", async (ctx) => {
 });
 
 /* ================= REFER ================= */
-bot.command("refer", (ctx) => {
+bot.command("refer", mustJoin, (ctx) => {
   const link = `https://t.me/${ctx.botInfo.username}?start=${ctx.from.id}`;
   ctx.reply(`🔗 Your Link:\n${link}\n\n💰 Earn $20 per referral`);
 });
 
 /* ================= BALANCE ================= */
-bot.command("balance", (ctx) => {
+bot.command("balance", mustJoin, (ctx) => {
   const db = loadDB();
   const user = db.users[ctx.from.id];
 
@@ -120,7 +136,7 @@ bot.command("balance", (ctx) => {
 });
 
 /* ================= BONUS ================= */
-bot.command("bonus", (ctx) => {
+bot.command("bonus", mustJoin, (ctx) => {
   const db = loadDB();
   const user = db.users[ctx.from.id];
 
@@ -137,7 +153,7 @@ bot.command("bonus", (ctx) => {
 });
 
 /* ================= WITHDRAW ================= */
-bot.command("withdraw", (ctx) => {
+bot.command("withdraw", mustJoin, (ctx) => {
   ctx.reply(
     "💸 Select Method:",
     Markup.inlineKeyboard([
@@ -181,7 +197,7 @@ bot.on("text", async (ctx) => {
         return ctx.reply("❌ Invalid amount");
       }
 
-      const requestId = Date.now(); // unique id
+      const requestId = Date.now();
 
       const msg = `💸 Withdraw Request
 
@@ -220,15 +236,10 @@ bot.action(/approve_(.+)_(.+)_(.+)/, async (ctx) => {
   const db = loadDB();
   const user = db.users[userId];
 
-  if (!user) return;
-
-  if (user.lastRequest === requestId) {
-    return ctx.answerCbQuery("Already processed!");
-  }
+  if (!user || user.lastRequest === requestId) return;
 
   user.balance -= amount;
   user.lastRequest = requestId;
-
   saveDB(db);
 
   await ctx.editMessageText(`✅ Approved & Paid
@@ -260,15 +271,10 @@ bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
   const db = loadDB();
   const user = db.users[userId];
 
-  if (!user) return;
-
-  if (user.lastRequest === requestId) {
-    return ctx.answerCbQuery("Already processed!");
-  }
+  if (!user || user.lastRequest === requestId) return;
 
   user.balance += amount;
   user.lastRequest = requestId;
-
   saveDB(db);
 
   await ctx.editMessageText(`❌ Withdraw Rejected
@@ -287,6 +293,24 @@ Amount Returned: $${amount}`);
       }
     }
   );
+});
+
+/* ================= DELETE (RESET) ================= */
+bot.command("delete", async (ctx) => {
+  if (ctx.from.id !== config.ADMIN_ID) return;
+
+  const db = loadDB();
+
+  Object.keys(db.users).forEach((id) => {
+    db.users[id].balance = 0;
+    db.users[id].referrals = 0;
+    db.users[id].rewarded = false;
+    db.users[id].joined = false;
+  });
+
+  saveDB(db);
+
+  ctx.reply("✅ All users reset! Referral restarted.");
 });
 
 /* ================= ERROR ================= */
