@@ -28,19 +28,14 @@ async function checkJoin(ctx) {
 }
 
 /* ================= FORCE JOIN ================= */
-async function mustJoin(ctx, next) {
-  const joined = await checkJoin(ctx);
-
-  if (!joined) {
-    return ctx.reply(
-      "❌ You must join channel first!",
-      Markup.inlineKeyboard([
-        [Markup.button.url("🌍 Join Channel", "https://t.me/Global_Method_Channel")]
-      ])
-    );
-  }
-
-  return next();
+async function joinMsg(ctx) {
+  return ctx.reply(
+    "❌ You must join channel first!",
+    Markup.inlineKeyboard([
+      [Markup.button.url("🌍 Join Channel", "https://t.me/Global_Method_Channel")],
+      [Markup.button.callback("✅ I Joined", "check_join")]
+    ])
+  );
 }
 
 /* ================= STATES ================= */
@@ -67,26 +62,28 @@ bot.start(async (ctx) => {
 
   if (!joined) {
     saveDB(db);
-    return ctx.reply(
-      "👋 Welcome!\nJoin required:",
-      Markup.inlineKeyboard([
-        [Markup.button.url("🌍 Join Channel", "https://t.me/Global_Method_Channel")],
-        [Markup.button.callback("✅ I Joined", "check_join")]
-      ])
-    );
+    return joinMsg(ctx);
   }
 
   db.users[id].joined = true;
   saveDB(db);
 
-  return ctx.reply(`✅ Welcome!
+  return ctx.reply(getWelcome());
+});
+
+/* ================= WELCOME ================= */
+function getWelcome() {
+  return `🎉 Welcome!
 
 💰 Referral System Active
-🔗 /refer
-📊 /balance
-💸 /withdraw
-🎁 /bonus`);
-});
+
+🔗 /refer - Get your referral link
+📊 /balance - Check your account
+💸 /withdraw - Withdraw money
+🎁 /bonus - Daily bonus
+
+🚀 Invite friends & earn money easily!`;
+}
 
 /* ================= JOIN ================= */
 bot.action("check_join", async (ctx) => {
@@ -94,7 +91,7 @@ bot.action("check_join", async (ctx) => {
   const id = ctx.from.id;
 
   const joined = await checkJoin(ctx);
-  if (!joined) return ctx.reply("❌ Join channel first!");
+  if (!joined) return joinMsg(ctx);
 
   db.users[id].joined = true;
 
@@ -110,8 +107,16 @@ bot.action("check_join", async (ctx) => {
   }
 
   saveDB(db);
-  return ctx.reply("✅ Joined Successfully!");
+
+  return ctx.reply(getWelcome());
 });
+
+/* ================= CHECK JOIN MIDDLEWARE ================= */
+async function mustJoin(ctx, next) {
+  const joined = await checkJoin(ctx);
+  if (!joined) return joinMsg(ctx);
+  return next();
+}
 
 /* ================= REFER ================= */
 bot.command("refer", mustJoin, (ctx) => {
@@ -183,14 +188,24 @@ bot.on("text", async (ctx) => {
     const state = withdrawState[id];
     const user = db.users[id];
 
+    // number step
     if (state.step === "number") {
+      if (ctx.message.text.length < 5) {
+        return ctx.reply("❌ Invalid number!");
+      }
+
       state.number = ctx.message.text;
       state.step = "amount";
       return ctx.reply("💰 Enter withdraw amount:");
     }
 
+    // amount step
     if (state.step === "amount") {
       const amount = Number(ctx.message.text);
+
+      if (isNaN(amount)) {
+        return ctx.reply("❌ Please enter valid number amount!");
+      }
 
       if (!user || user.balance < amount || amount < 5) {
         delete withdrawState[id];
@@ -199,18 +214,16 @@ bot.on("text", async (ctx) => {
 
       const requestId = Date.now();
 
-      const msg = `💸 Withdraw Request
+      await bot.telegram.sendMessage(
+        config.ADMIN_ID,
+        `💸 Withdraw Request
 
 ID: ${requestId}
 User: ${id}
 Username: @${ctx.from.username || "NoUsername"}
 Amount: $${amount}
 Method: ${state.method}
-Number: ${state.number}`;
-
-      await bot.telegram.sendMessage(
-        config.ADMIN_ID,
-        msg,
+Number: ${state.number}`,
         Markup.inlineKeyboard([
           [
             Markup.button.callback("✅ Approve", `approve_${requestId}_${id}_${amount}`),
@@ -236,7 +249,9 @@ bot.action(/approve_(.+)_(.+)_(.+)/, async (ctx) => {
   const db = loadDB();
   const user = db.users[userId];
 
-  if (!user || user.lastRequest === requestId) return;
+  if (!user || user.lastRequest === requestId) {
+    return ctx.answerCbQuery("Already processed!");
+  }
 
   user.balance -= amount;
   user.lastRequest = requestId;
@@ -247,8 +262,7 @@ bot.action(/approve_(.+)_(.+)_(.+)/, async (ctx) => {
 User: ${userId}
 Amount: $${amount}`);
 
-  await bot.telegram.sendMessage(
-    userId,
+  await bot.telegram.sendMessage(userId,
     "✅ Your payment has been sent!\nPlease check your wallet.",
     {
       reply_markup: {
@@ -271,7 +285,9 @@ bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
   const db = loadDB();
   const user = db.users[userId];
 
-  if (!user || user.lastRequest === requestId) return;
+  if (!user || user.lastRequest === requestId) {
+    return ctx.answerCbQuery("Already processed!");
+  }
 
   user.balance += amount;
   user.lastRequest = requestId;
@@ -282,8 +298,7 @@ bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
 User: ${userId}
 Amount Returned: $${amount}`);
 
-  await bot.telegram.sendMessage(
-    userId,
+  await bot.telegram.sendMessage(userId,
     "❌ Your withdraw request has been cancelled.\n💰 Amount returned to your balance.",
     {
       reply_markup: {
@@ -295,9 +310,11 @@ Amount Returned: $${amount}`);
   );
 });
 
-/* ================= DELETE (RESET) ================= */
+/* ================= DELETE ================= */
 bot.command("delete", async (ctx) => {
-  if (ctx.from.id !== config.ADMIN_ID) return;
+  if (ctx.from.id !== config.ADMIN_ID) {
+    return ctx.reply("❌ Not allowed");
+  }
 
   const db = loadDB();
 
@@ -310,7 +327,7 @@ bot.command("delete", async (ctx) => {
 
   saveDB(db);
 
-  ctx.reply("✅ All users reset! Referral restarted.");
+  ctx.reply("✅ All users reset successfully!");
 });
 
 /* ================= ERROR ================= */
