@@ -155,7 +155,7 @@ bot.command("bonus", mustJoin, (ctx) => {
   user.lastBonus = now;
 
   saveDB(db);
-  ctx.reply("🎁 You received $0.35 bonus!");
+  ctx.reply("🎁 You received $0.30 bonus!");
 });
 
 /* ================= WITHDRAW ================= */
@@ -208,7 +208,7 @@ bot.on("text", async (ctx) => {
 
       if (!user || user.balance < amount || amount < 5) {
         delete withdrawState[id];
-        return ctx.reply("❌ Invalid amount");
+        return ctx.reply("❌ Invalid amount Plesse Send valid amount");
       }
 
       const requestId = Date.now();
@@ -236,7 +236,7 @@ Number: ${state.number}`,
       );
 
       delete withdrawState[id];
-      return ctx.reply("✅ Request sent!");
+      return ctx.reply("✅ Request sent successful !");
     }
   }
 });
@@ -297,7 +297,7 @@ bot.action(/reject_(.+)_(.+)_(.+)/, async (ctx) => {
   user.lastRequest = requestId;
   saveDB(db);
 
-  await ctx.editMessageText(`❌ Withdraw Rejected
+  await ctx.editMessageText(`❌ Withdraw Rejected 
 
 User: ${userId}
 Amount Returned: $${amount}`);
